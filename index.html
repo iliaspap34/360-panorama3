@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>City4All XR – Σαλόνι 360°</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.css">
+<style>
+  :root {
+    --blue: #0077C8; --blue-light: #2b9be0; --green: #2FA84F; --green-light: #6fd08c;
+    --white: #FFFFFF; --navy: #0A2540; --line: rgba(255,255,255,.14); --muted: #9db6cf;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background: var(--navy); color: var(--white); }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  button { font-family: inherit; }
+
+  header.bar {
+    display: flex; align-items: center; justify-content: space-between; flex: none;
+    padding: env(safe-area-inset-top) 16px 0; height: calc(48px + env(safe-area-inset-top));
+    background: var(--navy); border-bottom: 2px solid var(--green); z-index: 20;
+  }
+  .logo { font-weight: 700; font-size: 1rem; letter-spacing: .2px; }
+  .logo b { color: var(--green-light); }
+  .sub { margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+  #panorama { flex: 1; min-height: 0; width: 100%; }
+  body.embed header.bar { display: none; }
+
+  /* ---------- Marker πληροφορίας ---------- */
+  /* Το div είναι 56x56 και το ΚΕΝΤΡΟ του είναι το ακριβές σημείο που ορίζεις με pitch/yaw. */
+  .pnlm-hotspot-base.c4a-info { width: 56px; height: 56px; cursor: pointer; outline: none; }
+  .hx-pulse {
+    position: absolute; left: 9px; top: 9px; width: 38px; height: 38px; border-radius: 50%;
+    border: 1.5px solid var(--green); opacity: 0; pointer-events: none; animation: hx-pulse 3.2s ease-out infinite;
+  }
+  .hx-dot {
+    position: absolute; left: 9px; top: 9px; width: 38px; height: 38px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--blue); border: 3px solid var(--white); box-shadow: 0 2px 8px rgba(0,0,0,.45); transition: transform .2s cubic-bezier(.3,1.4,.5,1), background .2s;
+  }
+  .hx-dot svg { width: 18px; height: 18px; }
+  .hx-arrow {
+    position: absolute; left: 50%; top: -26px; width: 16px; height: 30px; margin-left: -8px; pointer-events: none;
+    color: var(--green); filter: drop-shadow(0 1px 2px rgba(0,0,0,.7)); animation: hx-bob 2.2s ease-in-out infinite;
+  }
+  .hx-arrow svg { width: 100%; height: 100%; display: block; }
+  .hx-label {
+    position: absolute; left: 50%; bottom: calc(100% + 24px); transform: translate(-50%, 6px);
+    padding: 6px 12px; border-radius: 8px; white-space: nowrap; font-size: 13px; font-weight: 600;
+    background: var(--navy); border: 1px solid var(--line); color: var(--white); opacity: 0; pointer-events: none;
+    box-shadow: 0 6px 18px rgba(0,0,0,.35); transition: opacity .22s ease, transform .22s ease;
+  }
+  .c4a-info:hover .hx-label, .c4a-info:focus-visible .hx-label, .c4a-info.active .hx-label { opacity: 1; transform: translate(-50%, 0); }
+  .c4a-info:hover .hx-dot { transform: scale(1.12); background: #0a86e0; }
+  .c4a-info:active .hx-dot { transform: scale(.96); }
+  .c4a-info.active .hx-dot { background: var(--green); }
+  .c4a-info.active .hx-pulse { animation-duration: 1.8s; border-color: var(--green-light); }
+  /* Στα κινητά δεν υπάρχει hover: οι ετικέτες φαίνονται πάντα, διακριτικά */
+  @media (hover: none) { .hx-label { opacity: .95; transform: translate(-50%, 0); font-size: 12px; padding: 4px 9px; } }
+  .c4a-info:focus-visible .hx-dot { box-shadow: 0 0 0 3px var(--blue-light), 0 2px 8px rgba(0,0,0,.45); }
+  @keyframes hx-pulse { 0% { transform: scale(1); opacity: .6; } 100% { transform: scale(1.7); opacity: 0; } }
+  @keyframes hx-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+  @media (prefers-reduced-motion: reduce) { .hx-pulse, .hx-arrow, #panel.open { animation: none; } .hx-pulse { display: none; } }
+
+  #hint {
+    position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 15;
+    padding: 8px 16px; border-radius: 999px; background: rgba(10,37,64,.88); border: 1px solid var(--line); color: #dbe9f7;
+    font-size: .82rem; white-space: nowrap; pointer-events: none; transition: opacity .6s ease;
+  }
+  #hint.gone { opacity: 0; }
+
+  #loader {
+    position: fixed; left: 0; right: 0; bottom: 0; top: calc(48px + env(safe-area-inset-top)); z-index: 40;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+    background: var(--navy); transition: opacity .5s ease;
+  }
+  body.embed #loader { top: 0; }
+  #loader.done { opacity: 0; pointer-events: none; }
+  #loader .spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,.18); border-top-color: var(--green-light); animation: spin 1s linear infinite; }
+  #loader.err .spin { display: none; }
+  #loader p { margin: 0; max-width: 420px; font-size: .92rem; line-height: 1.5; color: #cfe0f0; }
+  #loader.err p { color: #ffd7a8; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #mark { display: none; position: fixed; right: 10px; bottom: 10px; z-index: 20; padding: 4px 9px; border-radius: 6px; pointer-events: none;
+    font-size: 11px; font-weight: 700; letter-spacing: .3px; background: var(--navy); border: 1px solid var(--line); }
+  #mark b { color: var(--green-light); }
+  body.embed #mark { display: block; }
+
+  /* ---------- Κάρτα κειμένου ---------- */
+  #panel {
+    position: fixed; top: 60px; right: 14px; width: 360px; max-height: calc(100% - 76px); overflow: auto;
+    background: var(--navy); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.4); z-index: 30;
+    opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .22s ease, transform .22s ease;
+  }
+  body.embed #panel { top: 12px; max-height: calc(100% - 24px); }
+  #panel.open { opacity: 1; pointer-events: auto; transform: none; animation: card-in .26s ease; }
+  @keyframes card-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+  #panel .body:empty { display: none; }
+  #panel .tag { display: inline-block; margin-top: 4px; font-size: .62rem; font-weight: 700; letter-spacing: .5px; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(43,155,224,.6); color: #9fd0f5; }
+  #panel .head { padding-bottom: 14px; align-items: center; }
+  #panel h2 { margin: 0; }
+  #panel .head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 12px 6px 14px; }
+  #panel .ico { flex: none; width: 34px; height: 34px; border-radius: 8px; background: var(--blue); display: flex; align-items: center; justify-content: center; }
+  #panel .ico svg { width: 18px; height: 18px; }
+  #panel h2 { margin: 6px 0 0; font-size: 1.05rem; font-weight: 600; line-height: 1.25; }
+  #panel .close {
+    margin-left: auto; flex: none; width: 30px; height: 30px; border-radius: 6px; border: 0; cursor: pointer;
+    background: transparent; color: var(--muted); font-size: 20px; line-height: 1;
+  }
+  #panel .close:hover, #panel .close:focus-visible { background: rgba(255,255,255,.1); color: var(--white); outline: none; }
+  #panel .body { padding: 0 14px 16px; }
+  #panel .body p { margin: 10px 0 0; font-size: .9rem; line-height: 1.55; color: #d4e3f2; }
+  #panel .actions { padding: 0 14px 14px; }
+  #panel a.btn { display: block; text-align: center; padding: 9px 12px; border-radius: 8px; background: var(--blue); color: var(--white); text-decoration: none; font-weight: 600; font-size: .86rem; }
+  #panel a.btn:hover, #panel a.btn:focus-visible { background: #0a86e0; outline: none; }
+
+  .pnlm-controls { border-color: var(--blue) !important; }
+  .pnlm-controls-container .pnlm-controls { background-color: var(--blue); }
+
+  #picker {
+    display: none; position: fixed; left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom));
+    max-width: 520px; padding: 10px 12px; border-radius: 8px; background: var(--navy); font-size: 14px; z-index: 50; border: 2px solid var(--green);
+  }
+  #picker code { display: block; margin: 6px 0; padding: 6px; background: #06182c; border-radius: 6px; color: var(--green-light); word-break: break-all; }
+  #picker button { background: var(--blue); color: #fff; border: 0; padding: 8px 12px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+
+  @media (max-width: 640px) {
+    .sub { display: none; }
+    #panel, body.embed #panel { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 75%; transform: translateY(20px); padding-bottom: env(safe-area-inset-bottom); }
+    #panel.open { transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div><span class="logo">City4All <b>XR</b></span><span class="sub" id="bizName"></span></div>
+</header>
+
+<div id="panorama"></div>
+<aside id="panel" role="dialog" aria-live="polite" aria-labelledby="pTitle"></aside>
+<div id="loader"><div class="spin"></div><p id="loaderMsg">Φόρτωση πανοράματος…</p></div>
+<div id="hint">Σύρε για να κοιτάξεις γύρω · πάτησε τα «i» για πληροφορίες</div>
+<div id="mark">City4All <b>XR</b></div>
+
+<div id="picker">
+  <div><b>Pick mode.</b> Κάνε κλικ/tap ακριβώς στο σημείο:</div>
+  <code id="pickOut">—</code>
+  <button id="pickCopy" type="button">Αντιγραφή</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pannellum/2.5.6/pannellum.js"></script>
+<script>
+/* ============================================================
+   ΡΥΘΜΙΣΕΙΣ – εδώ αλλάζεις τα δεδομένα
+   ============================================================ */
+
+const BUSINESS_NAME = "";               // όνομα επιχείρησης (εμφανίζεται δίπλα στο λογότυπο). Κενό = δεν εμφανίζεται.
+const PANORAMA_FILE = "saloni.jpg";     // σχετική διαδρομή: το saloni.jpg στον ίδιο φάκελο με αυτό το αρχείο
+
+// Εικόνα 3584 × 1792 = ακριβώς 2:1 → πλήρης σφαίρα 360° × 180°.
+const HAOV = 360, VAOV = 180, V_OFFSET = 0;
+
+const START_YAW = 0, START_PITCH = 0, START_HFOV = 95;
+const MIN_HFOV = 30, MAX_HFOV = 120;
+
+/* Σημεία πληροφόρησης.
+   - pitch / yaw: null = το σημείο ΔΕΝ εμφανίζεται. Βρες τις τιμές με ?pick=1.
+   - text: κενή γραμμή (\n\n) = νέα παράγραφος.
+   - link: προαιρετικό { url, label } για κουμπί. */
+const HOTSPOTS = [
+  // sample: true = γενικό δοκιμαστικό κείμενο (εμφανίζεται ένδειξη «ΔΕΙΓΜΑ ΚΕΙΜΕΝΟΥ» στην κάρτα).
+  //         Βάλε false (ή σβήσε τη γραμμή) όταν το κείμενο ελεγχθεί και ταιριάζει με τον πραγματικό χώρο.
+  // Θέσεις: ΕΚΤΙΜΗΣΗ, ισαπέχουσες γύρω από την αρχική θέαση. Βρες τις πραγματικές με ?pick=1.
+  {
+    id: "info-1", pitch: 0, yaw: 0, sample: true,
+    title: "Είσοδος και ράμπες",
+    text: "Ο χώρος διαθέτει ράμπες που επιτρέπουν την ανεμπόδιστη είσοδο σε άτομα με αναπηρία, γονείς με καρότσι και ηλικιωμένους.\n\n" +
+          "Η είσοδος έχει σχεδιαστεί ώστε να μην απαιτείται ανέβασμα σκαλοπατιών, με ήπια κλίση και αντιολισθητική επιφάνεια, ώστε να είναι ασφαλής και άνετη η πρόσβαση με αμαξίδιο.\n\n" +
+          "Αν χρειάζεστε οποιαδήποτε βοήθεια κατά την είσοδο, το προσωπικό θα σας εξυπηρετήσει με χαρά.",
+    link: null
+  },
+  {
+    id: "info-2", pitch: 0, yaw: 72, sample: true,
+    title: "Προσβάσιμες τουαλέτες",
+    text: "Στον χώρο υπάρχει τουαλέτα σχεδιασμένη για άτομα με κινητικά προβλήματα.\n\n" +
+          "Διαθέτει πόρτα με επαρκές πλάτος για αμαξίδιο, ελεύθερο χώρο ελιγμών στο εσωτερικό και χειρολαβές στήριξης δίπλα στη λεκάνη και στον νιπτήρα.\n\n" +
+          "Ο νιπτήρας και τα αξεσουάρ βρίσκονται σε ύψος που προσεγγίζεται εύκολα.",
+    link: null
+  },
+  {
+    id: "info-3", pitch: 0, yaw: 144, sample: true,
+    title: "Προσβάσιμο parking",
+    text: "Κοντά στην είσοδο υπάρχει θέση στάθμευσης για άτομα με αναπηρία.\n\n" +
+          "Η θέση είναι πιο φαρδιά από τις κοινές, ώστε να ανοίγει άνετα η πόρτα του οχήματος και να υπάρχει χώρος για το αμαξίδιο ή τη ράμπα, και συνδέεται με επίπεδη διαδρομή προς την είσοδο.\n\n" +
+          "Παρακαλούμε η θέση να μην χρησιμοποιείται από άλλα οχήματα.",
+    link: null
+  },
+  {
+    id: "info-4", pitch: 0, yaw: -144, sample: true,
+    title: "Εσωτερικός χώρος",
+    text: "Ο εσωτερικός χώρος έχει ευρύχωρες διαδρομές, ώστε να κινείται κανείς άνετα με αμαξίδιο, καρότσι ή βοήθημα βάδισης.\n\n" +
+          "Τα έπιπλα είναι τοποθετημένα με τρόπο που αφήνει ελεύθερα τα περάσματα, και υπάρχουν θέσεις με εύκολη πρόσβαση για όσους δυσκολεύονται να μετακινηθούν.",
+    link: null
+  },
+  {
+    id: "info-5", pitch: 0, yaw: -72, sample: true,
+    title: "Εξυπηρέτηση και βοήθεια",
+    text: "Το προσωπικό είναι πρόθυμο να εξυπηρετήσει κάθε επισκέπτη με σεβασμό και υπομονή.\n\n" +
+          "Μπορείτε να ζητήσετε βοήθεια για την πρόσβαση, τη μετακίνηση ή την πληροφόρηση, και η επικοινωνία γίνεται με ήρεμο ρυθμό και με σαφήνεια.",
+    link: null
+  }
+];
+
+/* ============================================================
+   ΚΩΔΙΚΑΣ – δεν χρειάζεται αλλαγή
+   ============================================================ */
+const params = new URLSearchParams(location.search);
+if (params.get("embed") === "1") document.body.classList.add("embed");
+const PICK_MODE = params.get("pick") === "1";
+const num = (k, d) => { const v = parseFloat(params.get(k)); return isFinite(v) ? v : d; };
+document.getElementById("bizName").textContent = BUSINESS_NAME;
+if (!BUSINESS_NAME) document.getElementById("bizName").style.display = "none";
+
+const ACTIVE = HOTSPOTS.filter(h => typeof h.pitch === "number" && typeof h.yaw === "number");
+const INFO_SVG = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+  '<circle cx="12" cy="6.2" r="1.9" fill="#fff"/><path d="M12 10.5V19" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>';
+const ARROW_SVG = '<svg viewBox="0 0 16 30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+  '<path d="M8 2V24M2.5 18.5L8 25L13.5 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt) e.textContent = txt; return e; };
+const panel = document.getElementById("panel");
+const DIVS = {};
+function setActive(id) { Object.keys(DIVS).forEach(k => DIVS[k].classList.toggle("active", k === id)); }
+
+function openPanel(h) {
+  panel.classList.remove("open"); void panel.offsetWidth;   // ξαναπαίζει την ομαλή κίνηση όταν αλλάζει σημείο
+  setActive(h.id);
+  panel.textContent = "";
+  const head = el("div", "head");
+  const ico = el("div", "ico"); ico.innerHTML = INFO_SVG;
+  const h2 = el("h2", "", h.title || ""); h2.id = "pTitle";
+  const close = el("button", "close", "×"); close.type = "button"; close.setAttribute("aria-label", "Κλείσιμο");
+  close.addEventListener("click", closePanel);
+  const mid = el("div"); mid.appendChild(h2);
+  if (h.sample) mid.appendChild(el("span", "tag", "ΔΕΙΓΜΑ ΚΕΙΜΕΝΟΥ"));
+  head.appendChild(ico); head.appendChild(mid); head.appendChild(close);
+  panel.appendChild(head);
+
+  const body = el("div", "body");
+  String(h.text || "").split(/\n\s*\n/).forEach(t => { if (t.trim()) body.appendChild(el("p", "", t.trim())); });
+  panel.appendChild(body);
+
+  if (h.link && h.link.url) {
+    const act = el("div", "actions");
+    const a = el("a", "btn", h.link.label || "Περισσότερα"); a.href = h.link.url; a.target = "_blank"; a.rel = "noopener";
+    act.appendChild(a); panel.appendChild(act);
+  }
+  panel.classList.add("open");
+}
+function closePanel() { panel.classList.remove("open"); setActive(null); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closePanel(); });
+
+function buildHotspot(div, h) {
+  div.classList.add("c4a-info");
+  DIVS[h.id] = div;
+  div.setAttribute("tabindex", "0");
+  div.setAttribute("role", "button");
+  div.setAttribute("aria-label", h.title || "Πληροφορίες");
+  const mk = cls => { const e = document.createElement("span"); e.className = cls; div.appendChild(e); return e; };
+  mk("hx-pulse");
+  mk("hx-dot").innerHTML = INFO_SVG;
+  mk("hx-arrow").innerHTML = ARROW_SVG;
+  mk("hx-label").textContent = h.title || "";
+  div.addEventListener("click", e => { e.stopPropagation(); openPanel(h); });
+  div.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPanel(h); } });
+}
+
+let viewer = null;
+
+/* ---------- Ασφαλής φόρτωση εικόνας ----------
+   1. Κατεβάζει την εικόνα και δείχνει ένδειξη φόρτωσης.
+   2. Αν είναι μεγαλύτερη από το όριο της κάρτας γραφικών (ή 8192 px), τη μικραίνει ΜΟΝΟ στον browser
+      (το αρχείο στο GitHub δεν αλλάζει) ώστε να μη μένει σε «Loading» ή μαύρη οθόνη.
+   3. Αν κάτι πάει στραβά, εμφανίζει σαφές μήνυμα αντί για ατέρμονο «Loading». */
+const loader = document.getElementById("loader");
+const loaderMsg = document.getElementById("loaderMsg");
+function loaderFail(msg) { loader.classList.remove("done"); loader.classList.add("err"); loaderMsg.textContent = msg; }
+function loaderDone() { loader.classList.add("done"); }
+
+function glMaxTexture() {
+  try {
+    const c = document.createElement("canvas");
+    const gl = c.getContext("webgl") || c.getContext("experimental-webgl");
+    return gl ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : 4096;
+  } catch (e) { return 4096; }
+}
+
+function startViewer(src) {
+  viewer = pannellum.viewer("panorama", {
+    type: "equirectangular",
+    panorama: src,
+    autoLoad: true,
+    haov: HAOV, vaov: VAOV, vOffset: V_OFFSET,
+    minPitch: V_OFFSET - VAOV / 2, maxPitch: V_OFFSET + VAOV / 2,
+    yaw: num("yaw", START_YAW), pitch: num("pitch", START_PITCH),
+    hfov: Math.min(MAX_HFOV, Math.max(MIN_HFOV, num("hfov", START_HFOV))),
+    minHfov: MIN_HFOV, maxHfov: MAX_HFOV,
+    showZoomCtrl: true, showFullscreenCtrl: true, mouseZoom: true, keyboardZoom: true, compass: false,
+    hotSpots: ACTIVE.map(h => ({
+      id: h.id, pitch: h.pitch, yaw: h.yaw, type: "custom", cssClass: "c4a-info",
+      createTooltipFunc: buildHotspot, createTooltipArgs: h
+    }))
+  });
+  viewer.on("load", loaderDone);
+  viewer.on("error", msg => {
+    console.error("Pannellum error:", msg);
+    loaderFail("Η εικόνα δεν μπόρεσε να εμφανιστεί σε αυτή τη συσκευή. Δοκίμασε να ανανεώσεις τη σελίδα ή να τη μικρύνεις σε 8192 px πλάτος.");
+  });
+  setTimeout(() => { if (!loader.classList.contains("done") && !loader.classList.contains("err")) loaderMsg.textContent = "Η φόρτωση αργεί… η εικόνα είναι μεγάλη, περίμενε λίγο."; }, 12000);
+
+  // Το hint εξαφανίζεται μόλις ο χρήστης αρχίσει να κοιτάζει γύρω
+  const hint = document.getElementById("hint");
+  const hideHint = () => hint.classList.add("gone");
+  ["mousedown", "touchstart", "wheel", "keydown"].forEach(ev => document.getElementById("panorama").addEventListener(ev, hideHint, { once: true, passive: true }));
+  setTimeout(hideHint, 9000);
+  if (params.get("embed") === "1") hint.style.bottom = "44px";
+
+  if (PICK_MODE) {
+    document.getElementById("picker").style.display = "block";
+    const out = document.getElementById("pickOut");
+    viewer.on("mousedown", ev => {
+      const c = viewer.mouseEventToCoords(ev);
+      out.textContent = "pitch: " + c[0].toFixed(1) + ",  yaw: " + c[1].toFixed(1);
+    });
+    document.getElementById("pickCopy").addEventListener("click", () => {
+      if (navigator.clipboard) navigator.clipboard.writeText(out.textContent);
+    });
+  }
+}
+
+(function loadImage() {
+  if (location.protocol === "file:") {
+    loaderFail("Η σελίδα δεν δουλεύει με διπλό κλικ από τον δίσκο. Άνοιξέ την από το URL του GitHub Pages (https://…github.io/…).");
+    return;
+  }
+  const img = new Image();
+  const giveUp = setTimeout(() => loaderFail("Η εικόνα δεν φορτώνει. Έλεγξε τη σύνδεση και ότι το αρχείο " + PANORAMA_FILE + " έχει ανέβει στον ίδιο φάκελο."), 60000);
+  img.onerror = () => { clearTimeout(giveUp); loaderFail("Δεν βρέθηκε η εικόνα «" + PANORAMA_FILE + "». Έλεγξε ότι έχει ανέβει στον ίδιο φάκελο με αυτό το αρχείο και ότι το όνομα είναι ακριβώς " + PANORAMA_FILE + " (μικρά γράμματα, χωρίς κενά)."); };
+  img.onload = () => {
+    clearTimeout(giveUp);
+    const maxW = Math.min(glMaxTexture(), 8192);
+    if (img.naturalWidth <= maxW) { startViewer(PANORAMA_FILE); return; }
+    try {
+      const k = maxW / img.naturalWidth;
+      const c = document.createElement("canvas");
+      c.width = maxW; c.height = Math.round(img.naturalHeight * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => startViewer(b ? URL.createObjectURL(b) : PANORAMA_FILE), "image/jpeg", 0.92);
+    } catch (e) { startViewer(PANORAMA_FILE); }
+  };
+  img.src = PANORAMA_FILE;
+})();
+</script>
+</body>
+</html>
